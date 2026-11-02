@@ -69,6 +69,47 @@ The hero is compared at identical pixel dimensions and 1× density. Continuation
 
 The site has been verified locally. Public hosting and domain deployment have not been performed.
 
+## KNS scroll-controlled 3D extension
+
+final result: passed
+
+### Scope and source truth
+
+The user requested a new 3D section in the existing visual system, rotating with scroll and revealing specifications, with the «1500…» model inscription removed. Sources: `IMG_4082.jpg`, `IMG_4084.jpg`, `IMG_4086.jpg`, `IMG_4087.jpg`, `IMG_4088.jpg` from the supplied archive under `/workspace/attachments/03108ced-63a9-43f7-bb39-fbce6ab87802/photos/`, the previously approved page, and the user's attached specification slide. The user explicitly confirmed the upper-right specification set. No CAD reference was supplied: the implemented model is a visual reconstruction, not a measured engineering model.
+
+### Evidence and findings
+
+- `/workspace/artifacts/skit-qa/kns-reference-comparison.png`: real product photograph and browser-rendered reconstruction in the same comparison input. The component families, plate, PCB, connectors and main arrangement are recognizable; fine geometry and materials are approximate by design. This is a comparison of subject and composition, not pixel matching of a photograph to a model.
+- `kns-1487-0.png` through `kns-1487-3.png`: four desktop stages at 1487 × 1058 CSS px, 1× density.
+- `kns-390-0.png` through `kns-390-3.png`: four mobile stages at 390 × 844, 1× density.
+- `kns-offline-320-False-True.png`: narrow/short viewport 320 × 568, checked for clipping and overflow.
+- `kns-offline-390-True-True.png`: reduced-motion layout with manual step controls.
+- `kns-offline-1487-False-False.png`: no-WebGL fallback with real rendered preview and working specifications.
+- `kns-final.png`: final inline build after callout transition refinement.
+
+An initial P2 issue showed a transient duplicate front panel while the fallback and canvas cross-faded. Fixed by replacing the fallback atomically once the renderer is ready; post-fix screenshots were inspected. Short mobile viewports received a compact layout to retain the controls and specifications. No remaining actionable P0/P1/P2 issues.
+
+### Required fidelity surfaces
+
+- **Typography:** same local Manrope, bold/light title hierarchy, real HTML annotation text. Numeric values use the confirmed source set; mobile text remains readable at the tested dimensions.
+- **Spacing:** new sticky scene inserted after directions; other page sections preserved and section indexes incremented. Desktop three-column product study becomes a stacked model with two annotation columns on mobile. No scroll interception or wheel-event hijacking.
+- **Colors:** warm olive-ivory scene and existing cobalt interface accent; model colors grounded in the actual green PCB, black plate, copper windings, yellow components and blue connectors. Physically based materials and lighting, without external HDR downloads.
+- **Assets:** genuine Three.js meshes for board, plate, capacitors, windings, transformer, heat-spreading rails, connectors and fasteners; edited photographic plate/PCB textures. Removed model/serial inscriptions from the textures. Approximate dimensions and detail are a P3 refinement pending CAD, not production geometry.
+- **Copy:** 95–265 V, 50–60 Hz, power factor 0.99; 3–33 V DC, up to 53 A; efficiency ≥93%, ripple ≤40 mV; −50…+50 °C; up to 1500 W forced / 1000 W convection cooling. No parameters from other slide executions mixed into this block. Email stays `mail@skitlab.ru`.
+
+### Executed validation
+
+- Production and standalone builds passed; ZIP integrity checked.
+- Real WebGL2 rendering on desktop and mobile: four distinct rotation values and four correct chapter/metric states verified.
+- Buttons change scroll position/chapter and model orientation; callout appearance animates and respects reduced motion.
+- Standalone archive extracted and served using ordinary Python `http.server`, with all requests except the HTML explicitly blocked. Passed at 320 × 568, 390 × 844, 1487 × 1058, reduced-motion mobile, and no-WebGL desktop. Zero additional network requests and zero JavaScript/console errors in those runs.
+- Fallback shows a rendered model image; controls and specifications remain available.
+- Reduced motion disables sticky scroll storytelling and smooth callout transitions; manual stage controls remain functional.
+- Rendering starts near the section and stops when the view is idle, outside the section or the document is hidden. Pixel density is capped.
+- Final inline build rechecked after the callout-animation change.
+
+Direct `file://` navigation remains blocked by the managed test browser's administrator policy, as documented above. The portable file contains no external modules or assets. Public deployment was not performed.
+
 ## Standalone delivery verification
 
 A self-contained HTML build is now produced by `npm run build:portable`. The downloadable `downloads/skit-offline.zip` contains that HTML and instructions. All CSS, classic JavaScript, fonts, icons and images are embedded as inline content or data URIs. It does not depend on serving separate asset files.
