@@ -1,23 +1,64 @@
 import '@fontsource-variable/manrope';
 import '@phosphor-icons/web/regular';
 import './style.css';
-import './kns.js';
+import { initKns } from './kns.js';
+import './motion.js';
 
-const directions = [
-  ['Электропитание', 'Источники питания и зарядные устройства', 'Источники вторичного электропитания серий ИВЭП, КНС, ИПС и ИПТ, зарядные устройства серии ЗСУ. Для подбора исполнения направьте требования по входному и выходному напряжению, мощности и условиям эксплуатации.'],
-  ['Связь и передача данных', 'IP-телефония, интерфейсные модули и системы передачи данных', 'IP-АТС AT128-IP, SIP-сервер, многоцелевые интерфейсные модули и оборудование передачи данных. Решения для построения и интеграции телекоммуникационных систем.'],
-  ['Электрохимическая защита', 'Катодная защита и коррозионный мониторинг', 'Модульные станции катодной защиты, системы коррозионного мониторинга и контрольно-измерительные пункты «Прорыв».'],
-  ['Вычислительные системы', 'Промышленные компьютеры и серверы', 'Стоечные исполнения серверов, одноплатные компьютеры на ARM и промышленные вычислительные устройства на x86.'],
-  ['Дисплейные модули', 'Встраиваемые компьютеры и HMI', 'Планшетные и встраиваемые компьютеры, моноблоки, дисплеи и человеко-машинные интерфейсы.'],
-  ['Авионика', 'Вычислительные и интерфейсные модули', 'Вычислительный интерфейсный модуль и мезонинный модуль авиационных интерфейсов. Обсудите с нашей командой требования к исполнению и интеграции.'],
-];
-document.querySelector('#direction-list').innerHTML = directions.map(([title, summary, detail], i) => `<details class="direction"><summary><span class="direction-number">0${i + 1}</span><span class="direction-title">${title}</span><span class="direction-summary">${summary}</span><i class="ph ph-arrow-right" aria-hidden="true"></i></summary><div class="direction-content"><p>${detail}</p><a class="text-link" href="mailto:mail@skitlab.ru?subject=${encodeURIComponent('Запрос: ' + title)}">Запросить информацию <i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div></details>`).join('');
-
-const menu = document.querySelector('#navigation-dialog');
-document.querySelector('.menu-button').addEventListener('click', () => menu.showModal());
-document.querySelector('.close-menu').addEventListener('click', () => menu.close());
-menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.close()));
-menu.addEventListener('click', e => { if (e.target === menu) { const r = menu.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) menu.close(); } });
+// Native <details> provides the basic menu without any JavaScript dependency.
+const menu = document.querySelector('#site-menu');
+const summary = menu.querySelector('summary');
+const main = document.querySelector('main');
+const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+let closingMenu = false;
+summary.addEventListener('pointerdown', () => {
+  document.dispatchEvent(new CustomEvent('site-menu-state', { detail: { open: true } }));
+  const finish = () => {
+    document.removeEventListener('pointerup', finish);
+    document.removeEventListener('pointercancel', finish);
+    setTimeout(() => document.dispatchEvent(new CustomEvent('site-menu-state', { detail: { open: menu.open } })), 0);
+  };
+  document.addEventListener('pointerup', finish, { once: true });
+  document.addEventListener('pointercancel', finish, { once: true });
+});
+menu.addEventListener('toggle', () => {
+  document.dispatchEvent(new CustomEvent('site-menu-state', { detail: { open: menu.open } }));
+  document.body.classList.toggle('menu-open', menu.open);
+  main.inert = menu.open;
+  document.querySelector('.desktop-nav').inert = menu.open;
+  summary.setAttribute('aria-label', menu.open ? 'Закрыть меню' : 'Открыть меню');
+});
+async function closeMenu(restoreFocus = false) {
+  if (!menu.open || closingMenu) return;
+  closingMenu = true;
+  if (!reduced.matches) {
+    try { await menu.querySelector('.menu-sheet').animate([{ opacity: 1 }, { opacity: 0, transform: 'translateY(-14px)' }], { duration: 180, easing: 'ease-in' }).finished; } catch {}
+  }
+  menu.open = false;
+  main.inert = false;
+  closingMenu = false;
+  if (restoreFocus) summary.focus();
+}
+summary.addEventListener('click', event => { if (menu.open) { event.preventDefault(); closeMenu(true); } });
+menu.querySelectorAll('a').forEach(a => a.addEventListener('click', async event => {
+  const target = a.getAttribute('href');
+  if (target.startsWith('#')) {
+    event.preventDefault();
+    await closeMenu();
+    const section = document.querySelector(target);
+    section?.scrollIntoView({ behavior: reduced.matches ? 'instant' : 'smooth' });
+    try { history.replaceState(null, '', target); } catch {}
+  } else closeMenu();
+}));
+document.addEventListener('keydown', event => {
+  if (!menu.open) return;
+  if (event.key === 'Escape') { event.preventDefault(); closeMenu(true); }
+  if (event.key === 'Tab') {
+    const items = [...menu.querySelectorAll('summary,a,button')].filter(el => el.getClientRects().length);
+    const first = items[0], last = items.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+});
 
 const photos = [
   { src: '/assets/machine.jpg', caption: 'Монтаж электронных компонентов', alt: 'Оборудование для монтажа электронных компонентов' },
@@ -25,13 +66,20 @@ const photos = [
   { src: '/assets/shelves.jpg', caption: 'Платы и электронные модули', alt: 'Серийные платы и модули СКиТ' },
 ];
 let currentPhoto = 0;
-function changePhoto(delta) {
+async function changePhoto(delta) {
   currentPhoto = (currentPhoto + delta + photos.length) % photos.length;
   const photo = photos[currentPhoto];
   const image = document.querySelector('#gallery-image');
+  const preload = new Image(); preload.src = photo.src;
+  try { await preload.decode(); } catch {}
+  if (photo !== photos[currentPhoto]) return;
   image.src = photo.src; image.alt = photo.alt;
+  if (!reduced.matches) image.animate([{ opacity: .25, transform: 'scale(1.025)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 500, easing: 'ease-out' });
   document.querySelector('#gallery-caption').innerHTML = `${photo.caption}<br>Саратов`;
   document.querySelector('#gallery-count').textContent = `0${currentPhoto + 1} / 03`;
 }
 document.querySelector('#gallery-prev').addEventListener('click', () => changePhoto(-1));
 document.querySelector('#gallery-next').addEventListener('click', () => changePhoto(1));
+
+// Enhancement failures cannot prevent the navigation and contact links working.
+try { initKns(); } catch { document.querySelector('#kns').dataset.renderMode = 'fallback'; }

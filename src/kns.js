@@ -1,9 +1,19 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+export function initKns() {
 
 const section = document.querySelector('#kns');
+if (!section) return;
 const canvas = document.querySelector('#kns-canvas');
 const visual = document.querySelector('#kns-visual');
+const marker = visual.querySelector('.kns-point');
+const leader = visual.querySelector('.kns-leader');
+const points = [new THREE.Vector3(-1.72, .85, .4), new THREE.Vector3(1.7, 1.2, .23), new THREE.Vector3(-.35, .15, .52), new THREE.Vector3(0, .4, -.07)];
+const normals = [new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)];
+const point = new THREE.Vector3();
+const normal = new THREE.Vector3();
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 // Upper-right execution from the supplied slide, confirmed by the user.
 const chapters = [
@@ -22,7 +32,10 @@ let model;
 let scene;
 let camera;
 let ready = false;
+let lastRendered = 0;
+let menuPaused = false;
 const clamp = THREE.MathUtils.clamp;
+const scrollRange = () => Math.max(1, section.offsetHeight - section.querySelector('.kns-sticky').offsetHeight);
 const toLines = (node, text) => { node.replaceChildren(...text.split('\n').flatMap((line, i) => i ? [document.createElement('br'), document.createTextNode(line)] : [document.createTextNode(line)])); };
 
 function updateChapter(progress) {
@@ -50,20 +63,24 @@ function updateChapter(progress) {
 function measureProgress() {
   if (!reducedMotion.matches) {
     const box = section.getBoundingClientRect();
-    targetProgress = clamp(-box.top / Math.max(1, section.offsetHeight - innerHeight), 0, 1);
+    targetProgress = clamp(-box.top / scrollRange(), 0, 1);
   }
   updateChapter(targetProgress);
   requestRender();
 }
 
 function requestRender() {
-  if (!frame && ready && visible && !document.hidden) frame = requestAnimationFrame(render);
+  if (!frame && ready && visible && !document.hidden && !menuPaused) frame = requestAnimationFrame(render);
 }
 
-function render() {
+function render(time) {
   frame = 0;
-  if (!ready || !visible || document.hidden) return;
-  currentProgress = reducedMotion.matches ? targetProgress : THREE.MathUtils.lerp(currentProgress, targetProgress, 0.12);
+  if (!ready || !visible || document.hidden || menuPaused) return;
+  const elapsed = Math.max(16, time - lastRendered);
+  if (innerWidth < 761 && elapsed < 30) { requestRender(); return; }
+  lastRendered = time;
+  // Time-based damping settles promptly even on a slow mobile graphics driver.
+  currentProgress = reducedMotion.matches ? targetProgress : THREE.MathUtils.lerp(currentProgress, targetProgress, 1 - Math.exp(-elapsed / 105));
   if (Math.abs(currentProgress - targetProgress) < 0.0005) currentProgress = targetProgress;
   // Front plate -> populated PCB -> connectors -> back of the PCB.
   model.rotation.y = 1.25 - currentProgress * 4.25;
@@ -71,6 +88,24 @@ function render() {
   model.rotation.z = -0.055;
   scene.updateMatrixWorld();
   renderer.render(scene, camera);
+  if (marker && chapter >= 0) {
+    const box = visual.getBoundingClientRect();
+    point.copy(points[chapter]).applyMatrix4(model.matrixWorld).project(camera);
+    normal.copy(normals[chapter]).transformDirection(model.matrixWorld);
+    const show = normal.z > .1 && Math.abs(point.x) < .98 && Math.abs(point.y) < .98;
+    marker.style.visibility = show ? 'visible' : 'hidden';
+    leader.style.visibility = show && innerWidth > 760 ? 'visible' : 'hidden';
+    const x = (point.x * .5 + .5) * box.width;
+    const y = (-point.y * .5 + .5) * box.height;
+    marker.style.left = `${x}px`; marker.style.top = `${y}px`;
+    marker.textContent = `0${chapter + 1}`;
+    const endpoint = section.querySelector('.kns-annotation-line').getBoundingClientRect();
+    const dx = endpoint.left - box.left - x;
+    const dy = endpoint.top - box.top - y;
+    leader.style.left = `${x}px`; leader.style.top = `${y}px`;
+    leader.style.width = `${Math.hypot(dx, dy)}px`;
+    leader.style.rotate = `${Math.atan2(dy, dx)}rad`;
+  }
   canvas.dataset.rotation = model.rotation.y.toFixed(3);
   if (currentProgress !== targetProgress) requestRender();
 }
@@ -86,115 +121,17 @@ function sizeRenderer() {
   requestRender();
 }
 
-function mesh(geometry, material, parent, x = 0, y = 0, z = 0) {
-  const item = new THREE.Mesh(geometry, material);
-  item.position.set(x, y, z);
-  parent.add(item);
-  return item;
-}
-
-function buildModel(backTexture, plateTexture) {
-  const group = new THREE.Group();
-  const mat = (color, metalness = 0, roughness = 0.5) => new THREE.MeshStandardMaterial({ color, metalness, roughness });
-  const pcb = mat('#0c583c', 0.12, 0.65);
-  const aluminium = mat('#b9bdc0', 0.8, 0.3);
-  const dark = mat('#101619', 0.1, 0.42);
-  const silver = mat('#dbdddf', 0.85, 0.25);
-  const copper = mat('#b96d31', 0.85, 0.25);
-  const yellow = mat('#d6b52d', 0.1, 0.48);
-  const blue = mat('#114dbb', 0.05, 0.45);
-  const gold = mat('#cbb879', 0.8, 0.3);
-  const box = (w, h, d, material, x, y, z, parent = group) => mesh(new THREE.BoxGeometry(w, h, d), material, parent, x, y, z);
-  const cylinder = (r, depth, material, x, y, z, segments = 24) => {
-    const obj = mesh(new THREE.CylinderGeometry(r, r, depth, segments), material, group, x, y, z);
-    obj.rotation.x = Math.PI / 2;
-    return obj;
-  };
-  box(3.15, 3.8, 0.075, pcb, 0, 0, 0);
-  const textureMaterial = new THREE.MeshStandardMaterial({ map: backTexture, roughness: 0.7, metalness: 0.08 });
-  const back = mesh(new THREE.PlaneGeometry(3.13, 3.78), textureMaterial, group, 0, 0, -0.039);
-  back.rotation.y = Math.PI;
-  mesh(new THREE.PlaneGeometry(3.13, 3.78), textureMaterial, group, 0, 0, 0.039);
-
-  // Plate is perpendicular to the populated PCB, as in the supplied photos.
-  box(0.055, 4.18, 1.08, dark, -1.67, 0, 0.4);
-  const plate = mesh(new THREE.PlaneGeometry(1.08, 4.18), new THREE.MeshStandardMaterial({ map: plateTexture, roughness: 0.55 }), group, -1.701, 0, 0.4);
-  plate.rotation.y = -Math.PI / 2;
-  for (const y of [-1.85, 1.85]) for (const z of [0.04, 0.51]) {
-    const screw = mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.022, 8), silver, group, -1.712, y, z);
-    screw.rotation.z = Math.PI / 2;
-  }
-
-  // Four large electrolytic capacitors along the input side.
-  for (let i = 0; i < 4; i++) {
-    const y = 1.25 - i * 0.8;
-    cylinder(0.21, 0.52, dark, -1.2, y, 0.32);
-    cylinder(0.185, 0.012, silver, -1.2, y, 0.59);
-    box(0.21, 0.012, 0.005, dark, -1.2, y, 0.602);
-    box(0.012, 0.21, 0.005, dark, -1.2, y, 0.603);
-  }
-
-  // Transformer, ferrite cores and copper windings.
-  box(0.72, 0.95, 0.55, dark, -0.35, 1.12, 0.34);
-  box(0.57, 0.88, 0.05, yellow, -0.35, 1.12, 0.641);
-  for (const [x, y] of [[-0.35, 0.18], [0.34, 0.18]]) {
-    box(0.5, 0.62, 0.12, dark, x, y, 0.13);
-    for (const side of [-1, 1]) box(0.08, 0.62, 0.47, dark, x + side * 0.21, y, 0.32);
-    for (const side of [-1, 1]) box(0.5, 0.075, 0.47, dark, x, y + side * 0.275, 0.32);
-    for (let turn = 0; turn < 15; turn++) {
-      const coil = mesh(new THREE.TorusGeometry(0.17, 0.013, 6, 22), copper, group, x, y - 0.22 + turn * 0.031, 0.34);
-      coil.rotation.x = Math.PI / 2;
-    }
-  }
-  // Toroidal inductors: actual depth and copper winding geometry, not image planes.
-  const toroid = (x, y, radius, cover = true) => {
-    mesh(new THREE.TorusGeometry(radius, 0.09, 12, 44), yellow, group, x, y, 0.3);
-    const points = [];
-    for (let i = 0; i <= 540; i++) {
-      const t = i / 540 * Math.PI * 2;
-      const r = radius + 0.105 * Math.cos(t * 28);
-      points.push(new THREE.Vector3(x + r * Math.cos(t), y + r * Math.sin(t), 0.3 + 0.105 * Math.sin(t * 28)));
-    }
-    mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 500, 0.014, 5, false), copper, group);
-    if (cover) { cylinder(radius * 0.86, 0.025, yellow, x, y, 0.419); cylinder(0.035, 0.035, silver, x, y, 0.444, 10); }
-  };
-  toroid(1.04, 1.27, 0.31);
-  toroid(-0.35, -1.13, 0.37);
-  toroid(-0.35, -0.55, 0.23, false);
-  toroid(1.12, -0.67, 0.2, false);
-  for (const y of [1.0, 0.49, -0.02]) {
-    cylinder(0.14, 0.35, blue, 0.94, y, 0.23);
-    cylinder(0.127, 0.014, silver, 0.94, y, 0.412);
-  }
-
-  // Aluminium mounting / heat spreader rails and their fasteners.
-  for (const x of [-0.82, 0.58]) {
-    box(0.19, 3.58, 0.16, aluminium, x, 0.03, 0.45);
-    box(0.07, 3.58, 0.28, aluminium, x - 0.06, 0.03, 0.3);
-    for (const y of [-1.55, -0.63, 0.63, 1.55]) cylinder(0.047, 0.028, silver, x, y, 0.55, 10);
-  }
-  for (const y of [-1.2, 1.2]) {
-    box(0.17, 0.9, 0.36, blue, 1.62, y, 0.18);
-    for (let pin = 0; pin < 12; pin++) box(0.19, 0.015, 0.025, gold, 1.51, y - 0.38 + pin * 0.068, 0.39);
-  }
-  // Small semiconductor packages and passive components add physical scale.
-  for (const [x, y] of [[1.08, 0.18], [0.26, -1.35], [1.03, -1.5], [-0.42, 1.72], [0.25, 1.72]]) {
-    box(0.19, 0.25, 0.09, dark, x, y, 0.1);
-    for (let pin = 0; pin < 4; pin++) for (const side of [-1, 1]) box(0.045, 0.018, 0.02, silver, x + side * 0.105, y - 0.085 + pin * 0.055, 0.071);
-  }
-  for (const x of [-1.4, 1.4]) for (const y of [-1.7, 1.7]) cylinder(0.055, 0.02, silver, x, y, 0.055, 12);
-  return group;
-}
-
 async function initialize() {
   try {
     const context = canvas.getContext('webgl2', { antialias: true, alpha: true, powerPreference: 'low-power' });
     if (!context) { section.dataset.renderMode = 'fallback'; return; }
     renderer = new THREE.WebGLRenderer({ canvas, context, antialias: true, alpha: true, powerPreference: 'low-power' });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+    renderer.setPixelRatio(Math.min(devicePixelRatio, innerWidth < 761 ? 1.25 : 1.6));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.15;
     scene = new THREE.Scene();
     const environment = new RoomEnvironment();
     const environmentGenerator = new THREE.PMREMGenerator(renderer);
@@ -205,14 +142,36 @@ async function initialize() {
     camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
     camera.position.set(0, 0.15, 8.3);
     camera.lookAt(0, 0, 0);
-    scene.add(new THREE.HemisphereLight('#f8fbff', '#747565', 1.25));
-    const key = new THREE.DirectionalLight('#ffffff', 2); key.position.set(-3, 4, 6); scene.add(key);
+    scene.add(new THREE.HemisphereLight('#f8fbff', '#747565', .65));
+    const key = new THREE.DirectionalLight('#fff8ed', 3.5);
+    key.position.set(-3.5, 6, 4.5);
+    key.castShadow = true;
+    key.shadow.mapSize.set(innerWidth < 761 ? 512 : 1024, innerWidth < 761 ? 512 : 1024);
+    key.shadow.camera.left = -4; key.shadow.camera.right = 4;
+    key.shadow.camera.top = 5; key.shadow.camera.bottom = -4;
+    key.shadow.camera.near = .1; key.shadow.camera.far = 20;
+    key.shadow.normalBias = .025; key.shadow.bias = -.0003; key.shadow.radius = 5;
+    scene.add(key);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(24, 24), new THREE.ShadowMaterial({ color: '#263029', opacity: .14 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -2.15;
+    floor.receiveShadow = true;
+    scene.add(floor);
     const rim = new THREE.DirectionalLight('#b9caff', 1.5); rim.position.set(4, 2, -3); scene.add(rim);
     const fill = new THREE.DirectionalLight('#ffffff', 0.8); fill.position.set(2, -3, 4); scene.add(fill);
-    const loader = new THREE.TextureLoader();
-    const [back, plate] = await Promise.all([loader.loadAsync('/assets/kns-pcb.png'), loader.loadAsync('/assets/kns-panel.png')]);
-    for (const texture of [back, plate]) { texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy()); }
-    model = buildModel(back, plate);
+    const gltf = await new GLTFLoader().loadAsync('/assets/kns.glb');
+    model = gltf.scene;
+    // Blender model is centred and exported with glTF's Y-up convention.
+    model.traverse(object => {
+      if (!object.isMesh) return;
+      object.castShadow = true;
+      object.receiveShadow = true;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) {
+        if (material.map) material.map.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+        material.envMapIntensity = .85;
+      }
+    });
     scene.add(model);
     ready = true;
     section.dataset.renderMode = 'webgl';
@@ -233,7 +192,7 @@ section.querySelectorAll('[data-kns-step]').forEach(button => button.addEventLis
   const step = Number(button.dataset.knsStep);
   const progress = (step + 0.35) / 4;
   if (reducedMotion.matches) { targetProgress = progress; updateChapter(progress); requestRender(); }
-  else window.scrollTo({ top: window.scrollY + section.getBoundingClientRect().top + progress * (section.offsetHeight - innerHeight), behavior: 'smooth' });
+  else window.scrollTo({ top: window.scrollY + section.getBoundingClientRect().top + progress * scrollRange(), behavior: 'smooth' });
 }));
 
 const observer = new IntersectionObserver(entries => {
@@ -246,5 +205,12 @@ new ResizeObserver(sizeRenderer).observe(visual);
 window.addEventListener('scroll', measureProgress, { passive: true });
 window.addEventListener('resize', measureProgress, { passive: true });
 document.addEventListener('visibilitychange', requestRender);
+document.addEventListener('site-menu-state', event => {
+  menuPaused = Boolean(event.detail.open);
+  if (menuPaused && frame) { cancelAnimationFrame(frame); frame = 0; }
+  else requestRender();
+});
 reducedMotion.addEventListener('change', measureProgress);
 updateChapter(0);
+
+}

@@ -2,3 +2,4 @@ node_modules/
 dist/
 portable/
 .DS_Store
+*.blend1
