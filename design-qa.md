@@ -68,3 +68,11 @@ The hero is compared at identical pixel dimensions and 1× density. Continuation
 - [x] Save source-to-implementation comparison evidence.
 
 The site has been verified locally. Public hosting and domain deployment have not been performed.
+
+## Standalone delivery verification
+
+A self-contained HTML build is now produced by `npm run build:portable`. The downloadable `downloads/skit-offline.zip` contains that HTML and instructions. All CSS, classic JavaScript, fonts, icons and images are embedded as inline content or data URIs. It does not depend on serving separate asset files.
+
+The extracted ZIP was tested through Python `http.server` rather than Vite at 390 and 1487px. All requests except the HTML document were explicitly blocked. CSS and font application, image decoding, navigation dialog, direction expansion, gallery switching, viewport width and console were checked: passed, with zero additional network requests and zero browser errors. Browser screenshots: `/workspace/artifacts/skit-qa/offline-390.png`, `offline-1487.png`, and `offline-hero.png`. The desktop capture was visually inspected against the approved hero and previous implementation. No design changes were introduced.
+
+Direct file:// navigation in the managed test Chromium returned `ERR_BLOCKED_BY_ADMINISTRATOR`; that exact launch mode could not be executed here. The portable HTML uses ordinary inline CSS and classic JavaScript (no module imports), with no external resources. Windows/Yandex Browser itself was not available for testing. The user's original CSS loading failure is not established as an archive defect; its exact local cause remains unconfirmed. The portable delivery removes that separate-resource dependency.
